@@ -237,10 +237,15 @@ export class SuggestionManager {
   }
 
   update(keyPress: KeyPress, allowBindings = true): boolean {
-    const { name, shift, ctrl } = keyPress;
-    if (name == "return") {
-      this.#term.clearCommand(); // clear the current command on enter
+    const handled = this._handleKeyPress(keyPress, allowBindings);
+    if (keyPress.name == "return" && !handled) {
+      this.#term.clearCommand(); // clear the current command when enter is sent to the shell
     }
+    return handled;
+  }
+
+  private _handleKeyPress(keyPress: KeyPress, allowBindings: boolean): boolean {
+    const { name, shift, ctrl } = keyPress;
 
     // if suggestions are hidden, keep them hidden until during command navigation
     if (this.#hideSuggestions) {
@@ -274,7 +279,7 @@ export class SuggestionManager {
         return false;
       }
       this.#term.write(applyReplacement(action));
-    } else if (name == "return" || (name == "c" && ctrl)) {
+    } else if (name == "c" && ctrl) {
       this.#term.clearCommand();
       return false;
     } else {

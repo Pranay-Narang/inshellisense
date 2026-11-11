@@ -149,6 +149,56 @@ test("does not consume suggestion bindings when the UI is hidden", async () => {
   expect(writes).toEqual([]);
 });
 
+describe("enter key", () => {
+  let originalBindings: ReturnType<typeof getConfig>["bindings"];
+
+  beforeEach(() => {
+    originalBindings = getConfig().bindings;
+  });
+
+  afterEach(() => {
+    getConfig().bindings = originalBindings;
+  });
+
+  const createManager = async () => {
+    const writes: string[] = [];
+    let clearCalls = 0;
+    const terminal = {
+      cwd: process.cwd(),
+      cols: 80,
+      write: (data: string) => writes.push(data),
+      clearCommand: () => {
+        clearCalls += 1;
+      },
+      getCommandState: () => ({ commandText: "git ", cursorTerminated: true, hasOutput: false }),
+      getCursorState: () => ({ cursorX: 0 }),
+    } as unknown as ISTerm;
+    const manager = new SuggestionManager(terminal, Shell.Bash, Promise.resolve({ getSuggestions: async () => blob("status") }));
+    await manager.exec();
+    return { manager, writes, clearCalls: () => clearCalls };
+  };
+
+  const enter = { name: "return", sequence: "\r", shift: false, ctrl: false };
+
+  test("clears the current command when enter is sent to the shell", async () => {
+    const { manager, writes, clearCalls } = await createManager();
+
+    expect(manager.update(enter)).toBe(false);
+    expect(manager.update(enter, false)).toBe(false);
+    expect(writes).toEqual([]);
+    expect(clearCalls()).toBe(2);
+  });
+
+  test("keeps the current command when enter accepts a suggestion", async () => {
+    getConfig().bindings = { ...originalBindings, acceptSuggestion: { key: "return" } };
+    const { manager, writes, clearCalls } = await createManager();
+
+    expect(manager.update(enter)).toBe(true);
+    expect(writes).toEqual(["status "]);
+    expect(clearCalls()).toBe(0);
+  });
+});
+
 describe("adaptive suggestion layout", () => {
   let originalConfig: ReturnType<typeof getConfig>;
 

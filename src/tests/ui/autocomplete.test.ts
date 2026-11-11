@@ -233,6 +233,42 @@ describe("resize recovery", () => {
   });
 });
 
+describe("accept suggestion bound to enter", () => {
+  let home: string;
+  let terminal: TuiTest | undefined;
+
+  beforeAll(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), "inshellisense-enter-"));
+    await unpackResources(path.join(home, ".inshellisense"));
+    await fs.writeFile(path.join(home, ".inshellisenserc"), `[bindings.acceptSuggestion]\nkey = "return"\n`);
+  });
+
+  afterEach(async () => {
+    await closeSession(terminal);
+    terminal = undefined;
+  });
+
+  afterAll(async () => {
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  test("keeps suggesting after accepting with enter", async () => {
+    terminal = await startSession(
+      {
+        label: "bash-enter",
+        shell: "bash",
+        env: { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config"), BASH_SILENCE_DEPRECATION_WARNING: "1" },
+      },
+      ["-T", "-s", "bash"],
+    );
+    await terminal.type("git remo");
+    await expectText(terminal, "remote", { strict: false });
+    await terminal.press("Enter");
+    await expectText(terminal, "> git remote", { strict: false });
+    await expectText(terminal, "rename", { strict: false });
+  });
+});
+
 configs.map((config) => {
   const rc = returnChar(config.shell);
   const args = ["-V", "-T", "-s", config.shell];
