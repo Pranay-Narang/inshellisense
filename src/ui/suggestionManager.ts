@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import path from "node:path";
 import { Suggestion, SuggestionBlob } from "../runtime/model.js";
 import type { ISTerm, ISTermPatch } from "../isterm/pty.js";
 import { getExpandedBoxSize, renderBox, truncateText, truncateMultilineText } from "./utils.js";
 import chalk from "chalk";
-import { Shell } from "../utils/shell.js";
+import { removePathSeparator, Shell } from "../utils/shell.js";
 import log from "../utils/log.js";
 import { getConfig } from "../utils/config.js";
 import { calculateReplacement, applyReplacement } from "../runtime/replacement.js";
@@ -41,6 +42,7 @@ export class SuggestionManager {
   #term: ISTerm;
   #commandKey: string;
   #activeSuggestionIdx: number;
+  #selectionMoved = false;
   #suggestBlob?: SuggestionBlob;
   #shell: Shell;
   #hideSuggestions: boolean = false;
@@ -77,6 +79,7 @@ export class SuggestionManager {
     this.#commandKey = "";
     this.#suggestBlob = undefined;
     this.#activeSuggestionIdx = 0;
+    this.#selectionMoved = false;
     this.#hideSuggestions = false;
     if (commandCleared) {
       try {
@@ -110,6 +113,7 @@ export class SuggestionManager {
       const changed = this.#suggestBlob != null || this.#activeSuggestionIdx !== 0;
       this.#suggestBlob = undefined;
       this.#activeSuggestionIdx = 0;
+      this.#selectionMoved = false;
       return changed;
     }
     const abortController = new AbortController();
@@ -124,6 +128,7 @@ export class SuggestionManager {
       this.#commandKey = commandKey;
       this.#suggestBlob = suggestionBlob;
       this.#activeSuggestionIdx = 0;
+      this.#selectionMoved = false;
       return true;
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
@@ -267,8 +272,10 @@ export class SuggestionManager {
       this.#hideSuggestions = true;
     } else if (name == prevKey && shift == !!prevShift && ctrl == !!prevCtrl) {
       this.#activeSuggestionIdx = Math.max(0, this.#activeSuggestionIdx - 1);
+      this.#selectionMoved = true;
     } else if (name == nextKey && shift == !!nextShift && ctrl == !!nextCtrl) {
       this.#activeSuggestionIdx = Math.min(this.#activeSuggestionIdx + 1, (this.#suggestBlob?.suggestions.length ?? 1) - 1);
+      this.#selectionMoved = true;
     } else if (name == acceptKey && shift == !!acceptShift && ctrl == !!acceptCtrl) {
       const suggestion = this.#suggestBlob?.suggestions.at(this.#activeSuggestionIdx);
       if (suggestion == null || this.#suggestBlob?.suggestions.length == 0) {
@@ -276,6 +283,14 @@ export class SuggestionManager {
       }
       const action = calculateReplacement(this.#suggestBlob?.activeToken, suggestion);
       if (action == null) {
+        return false;
+      }
+      // enter runs the command on a fully typed suggestion, or on a completed folder when no suggestion was selected
+      const activeToken = this.#suggestBlob?.activeToken;
+      const typedComplete =
+        activeToken != null &&
+        (path.basename(activeToken.token) == removePathSeparator(suggestion.name) || (!!activeToken.isPathComplete && !this.#selectionMoved));
+      if (name == "return" && typedComplete) {
         return false;
       }
       this.#term.write(applyReplacement(action));

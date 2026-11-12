@@ -160,7 +160,7 @@ describe("enter key", () => {
     getConfig().bindings = originalBindings;
   });
 
-  const createManager = async () => {
+  const createManager = async (suggestionBlob = blob("status")) => {
     const writes: string[] = [];
     let clearCalls = 0;
     const terminal = {
@@ -173,12 +173,19 @@ describe("enter key", () => {
       getCommandState: () => ({ commandText: "git ", cursorTerminated: true, hasOutput: false }),
       getCursorState: () => ({ cursorX: 0 }),
     } as unknown as ISTerm;
-    const manager = new SuggestionManager(terminal, Shell.Bash, Promise.resolve({ getSuggestions: async () => blob("status") }));
+    const manager = new SuggestionManager(terminal, Shell.Bash, Promise.resolve({ getSuggestions: async () => suggestionBlob }));
     await manager.exec();
     return { manager, writes, clearCalls: () => clearCalls };
   };
 
   const enter = { name: "return", sequence: "\r", shift: false, ctrl: false };
+
+  const folder = (typed: string, name: string, insertValue: string, isPathComplete = false): SuggestionBlob => ({
+    suggestions: [{ name, allNames: [name], icon: "*", priority: 55, insertValue, type: "folder" }],
+    activeToken: { token: typed, tokenLength: typed.length, complete: false, isOption: false, isPath: isPathComplete, isPathComplete },
+  });
+
+  const down = { name: "down", sequence: "\u001b[B", shift: false, ctrl: false };
 
   test("clears the current command when enter is sent to the shell", async () => {
     const { manager, writes, clearCalls } = await createManager();
@@ -196,6 +203,63 @@ describe("enter key", () => {
     expect(manager.update(enter)).toBe(true);
     expect(writes).toEqual(["status "]);
     expect(clearCalls()).toBe(0);
+  });
+
+  test.each([
+    ["..", "..", "../"],
+    ["../Shared", "Shared", "../Shared/"],
+    ["./Apps", "Apps", "Apps/"],
+    ["My Folder", "My Folder", '"My Folder/"'],
+    ["My Folder/", "My Folder", '"My Folder/"'],
+  ])("runs the command when enter accepts the fully typed path %s", async (typed, name, insertValue) => {
+    getConfig().bindings = { ...originalBindings, acceptSuggestion: { key: "return" } };
+    const { manager, writes, clearCalls } = await createManager(folder(typed, name, insertValue));
+
+    expect(manager.update(enter)).toBe(false);
+    expect(writes).toEqual([]);
+    expect(clearCalls()).toBe(1);
+  });
+
+  test("completes a partially typed path when enter accepts a suggestion", async () => {
+    getConfig().bindings = { ...originalBindings, acceptSuggestion: { key: "return" } };
+    const { manager, writes, clearCalls } = await createManager(folder("App", "Applications", "Applications/"));
+
+    expect(manager.update(enter)).toBe(true);
+    expect(writes).toEqual(["\u007F".repeat(3) + "Applications/"]);
+    expect(clearCalls()).toBe(0);
+  });
+
+  test("tab still completes a fully typed path", async () => {
+    const { manager, writes } = await createManager(folder("..", "..", "../"));
+
+    expect(manager.update({ name: "tab", sequence: "\t", shift: false, ctrl: false })).toBe(true);
+    expect(writes).toEqual(["\u007F".repeat(2) + "../"]);
+  });
+
+  test("runs the command when enter is pressed on a completed folder", async () => {
+    getConfig().bindings = { ...originalBindings, acceptSuggestion: { key: "return" } };
+    const { manager, writes, clearCalls } = await createManager(folder("Applications/", "Claude.app", "Applications/Claude.app/", true));
+
+    expect(manager.update(enter)).toBe(false);
+    expect(writes).toEqual([]);
+    expect(clearCalls()).toBe(1);
+  });
+
+  test("accepts a selected suggestion inside a completed folder with enter", async () => {
+    getConfig().bindings = { ...originalBindings, acceptSuggestion: { key: "return" } };
+    const { manager, writes, clearCalls } = await createManager(folder("Applications/", "Claude.app", "Applications/Claude.app/", true));
+
+    expect(manager.update(down)).toBe(true);
+    expect(manager.update(enter)).toBe(true);
+    expect(writes).toEqual(["\u007F".repeat(13) + "Applications/Claude.app/"]);
+    expect(clearCalls()).toBe(0);
+  });
+
+  test("tab still completes inside a completed folder", async () => {
+    const { manager, writes } = await createManager(folder("Applications/", "Claude.app", "Applications/Claude.app/", true));
+
+    expect(manager.update({ name: "tab", sequence: "\t", shift: false, ctrl: false })).toBe(true);
+    expect(writes).toEqual(["\u007F".repeat(13) + "Applications/Claude.app/"]);
   });
 });
 

@@ -252,8 +252,8 @@ describe("accept suggestion bound to enter", () => {
     await fs.rm(home, { recursive: true, force: true });
   });
 
-  test("keeps suggesting after accepting with enter", async () => {
-    terminal = await startSession(
+  const start = () =>
+    startSession(
       {
         label: "bash-enter",
         shell: "bash",
@@ -261,11 +261,36 @@ describe("accept suggestion bound to enter", () => {
       },
       ["-T", "-s", "bash"],
     );
+
+  test("keeps suggesting after accepting with enter", async () => {
+    terminal = await start();
     await terminal.type("git remo");
     await expectText(terminal, "remote", { strict: false });
     await terminal.press("Enter");
     await expectText(terminal, "> git remote", { strict: false });
     await expectText(terminal, "rename", { strict: false });
+  });
+
+  test("runs a fully typed path with enter", async () => {
+    terminal = await start();
+    await terminal.type("cd ..");
+    await expectText(terminal, "┌", { strict: false });
+    await terminal.press("Enter");
+    await expectPrompt(terminal);
+    await terminal.type("pwd");
+    await terminal.press("Enter");
+    await expectText(terminal, path.dirname(process.cwd()), { strict: false });
+  });
+
+  test("runs a completed folder with enter", async () => {
+    terminal = await start();
+    await terminal.type("cd src/");
+    await expectText(terminal, "┌", { strict: false });
+    await terminal.press("Enter");
+    await expectPrompt(terminal);
+    await terminal.type("pwd");
+    await terminal.press("Enter");
+    await expectText(terminal, path.join(process.cwd(), "src"), { strict: false });
   });
 });
 
